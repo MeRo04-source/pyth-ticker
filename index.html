@@ -1,0 +1,412 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pyth Network Live Price Ticker</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background: #0a0a1a;
+            overflow: hidden;
+        }
+        .ticker-container {
+            background: linear-gradient(135deg, #0a0a1a 0%, #10102a 100%);
+            height: 60px;
+            width: 100%;
+            overflow: hidden;
+            position: relative;
+            box-shadow: 0 2px 10px rgba(0,0,0,0.3);
+            border-top: 2px solid #222244;
+            border-bottom: 2px solid #222244;
+        }
+        .ticker-content {
+            display: flex;
+            align-items: center;
+            height: 100%;
+            animation: scroll 40s linear infinite;
+            white-space: nowrap;
+        }
+        @keyframes scroll {
+            0% {
+                transform: translateX(100%);
+            }
+            100% {
+                transform: translateX(-100%);
+            }
+        }
+        .price-item {
+            color: #ffffff;
+            font-size: 16px;
+            font-weight: 500;
+            margin-right: 28px;
+            display: inline-flex;
+            align-items: center;
+            letter-spacing: 0.5px;
+        }
+        .symbol {
+            font-weight: 700;
+            color: #60a5fa;
+        }
+        .separator {
+            margin: 0 6px;
+            color: #93c5fd;
+        }
+        .price {
+            font-weight: 600;
+            color: #ffffff;
+        }
+        .change {
+            font-size: 14px;
+            margin-left: 10px;
+            padding: 2px 8px;
+            border-radius: 12px;
+            font-weight: 500;
+        }
+        .positive {
+            background: rgba(34, 197, 94, 0.18);
+            color: #22c55e;
+        }
+        .negative {
+            background: rgba(239, 68, 68, 0.18);
+            color: #ef4444;
+        }
+        .neutral {
+            background: rgba(156, 163, 175, 0.18);
+            color: #9ca3af;
+        }
+        .loading {
+            color: #93c5fd;
+            font-style: italic;
+        }
+        .ticker-container:hover .ticker-content {
+            animation-play-state: paused;
+        }
+        .status-bar {
+            background: rgba(10, 10, 26, 0.92);
+            color: #cbd5e1;
+            font-size: 11px;
+            text-align: center;
+            padding: 2px 0;
+            position: absolute;
+            top: 0;
+            width: 100%;
+            z-index: 10;
+            letter-spacing: 0.5px;
+        }
+        .error {
+            color: #ef4444;
+        }
+        .retry-btn {
+            background: rgba(96, 165, 250, 0.2);
+            color: #60a5fa;
+            border: 1px solid #60a5fa;
+            padding: 1px 6px;
+            border-radius: 4px;
+            font-size: 10px;
+            margin-left: 8px;
+            cursor: pointer;
+            transition: all 0.2s;
+        }
+        .retry-btn:hover {
+            background: rgba(96, 165, 250, 0.3);
+        }
+    </style>
+</head>
+<body>
+    <div class="ticker-container">
+        <div class="status-bar" id="statusBar">Loading market data...</div>
+        <div class="ticker-content" id="tickerContent">
+            <div class="price-item loading">Loading market prices...</div>
+        </div>
+    </div>
+    <script>
+        // Fixed and complete Pyth Network price feed IDs
+        const PYTH_ASSETS = [
+            { 
+                symbol: 'BTC/USD', 
+                pythId: '0xe62df6c8b4c85fe1fd6527c0d8ea3cd0e1fdb0d87d0de0fdfa8b63767c1cbbce',
+                formatPrice: (price) => price > 1000 ? `$${price.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}` : `$${price.toFixed(2)}`
+            },
+            { 
+                symbol: 'ETH/USD', 
+                pythId: '0xff61491a931112ddf1bd8147cd1b641375f79f5825126d665480874634fd0ace',
+                formatPrice: (price) => `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            },
+            { 
+                symbol: 'SOL/USD', 
+                pythId: '0xef0d8b6fda2ceba41da15d4095d1da392a0d2f8ed0c6c7bc0f4cfac8c280b56d',
+                formatPrice: (price) => `$${price.toFixed(2)}`
+            },
+            { 
+                symbol: 'USDT/USD', 
+                pythId: '0x2b89b9dc8fdf9f34709a5b106b472f0f39bb6ca5dc6b6e77aca1df3f95e4c8b4',
+                formatPrice: (price) => `$${price.toFixed(4)}`
+            },
+            { 
+                symbol: 'USDC/USD', 
+                pythId: '0xeaa020c61cc479712813461ce153894a96a6c00b21ed0cfc2798d1f9a9e9c94a',
+                formatPrice: (price) => `$${price.toFixed(4)}`
+            },
+            { 
+                symbol: 'EUR/USD', 
+                pythId: '0xa995d00bb36a63cef7fd2c287dc105fc8f3d93779f062f09551b0af3e81ec30b',
+                formatPrice: (price) => `${price.toFixed(4)}`
+            },
+            { 
+                symbol: 'GBP/USD', 
+                pythId: '0x84c2dde9633d93d1bcad84e7dc41c9d56578b7ec52fabedc1f335d673df0a7c1',
+                formatPrice: (price) => `${price.toFixed(4)}`
+            },
+            { 
+                symbol: 'XAU/USD', 
+                pythId: '0x765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2',
+                formatPrice: (price) => `$${price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+            }
+        ];
+
+        let refreshInterval;
+        let currentPrices = [];
+        let retryCount = 0;
+        const maxRetries = 3;
+
+        // Convert hex to base64 for Pyth API
+        function hexToBase64(hexString) {
+            if (hexString.startsWith('0x')) hexString = hexString.slice(2);
+            const bytes = [];
+            for (let i = 0; i < hexString.length; i += 2) {
+                bytes.push(parseInt(hexString.substr(i, 2), 16));
+            }
+            return btoa(String.fromCharCode.apply(null, bytes));
+        }
+
+        // Enhanced fetch with better error handling and retries
+        async function fetchPythPrices() {
+            const ids = PYTH_ASSETS.map(asset => hexToBase64(asset.pythId));
+            const url = `https://hermes.pyth.network/api/latest_price_feeds?${ids.map(id => `ids[]=${encodeURIComponent(id)}`).join('&')}`;
+            
+            try {
+                const controller = new AbortController();
+                const timeoutId = setTimeout(() => controller.abort(), 10000); // 10 second timeout
+                
+                const response = await fetch(url, { 
+                    signal: controller.signal,
+                    headers: {
+                        'Accept': 'application/json',
+                        'Cache-Control': 'no-cache'
+                    }
+                });
+                
+                clearTimeout(timeoutId);
+                
+                if (!response.ok) {
+                    throw new Error(`API Error: ${response.status} ${response.statusText}`);
+                }
+                
+                const data = await response.json();
+                
+                if (!Array.isArray(data) || data.length === 0) {
+                    throw new Error('No price data received from API');
+                }
+
+                // Process the price data
+                const prices = PYTH_ASSETS.map(asset => {
+                    const feed = data.find(feed => feed.id === hexToBase64(asset.pythId));
+                    
+                    if (!feed || !feed.price) {
+                        return {
+                            symbol: asset.symbol,
+                            price: null,
+                            change: null,
+                            error: true
+                        };
+                    }
+
+                    const priceData = feed.price;
+                    let currentPrice = null;
+                    let priceChange = null;
+
+                    // Calculate current price
+                    if (typeof priceData.price === 'string') {
+                        currentPrice = parseFloat(priceData.price) * Math.pow(10, priceData.expo || 0);
+                    } else if (typeof priceData.price === 'number') {
+                        currentPrice = priceData.price * Math.pow(10, priceData.expo || 0);
+                    }
+
+                    // Calculate price change percentage
+                    if (currentPrice !== null && priceData.prev_price) {
+                        let prevPrice;
+                        if (typeof priceData.prev_price === 'string') {
+                            prevPrice = parseFloat(priceData.prev_price) * Math.pow(10, priceData.expo || 0);
+                        } else {
+                            prevPrice = priceData.prev_price * Math.pow(10, priceData.expo || 0);
+                        }
+                        
+                        if (prevPrice && prevPrice !== 0) {
+                            priceChange = ((currentPrice - prevPrice) / prevPrice) * 100;
+                        }
+                    }
+
+                    return {
+                        symbol: asset.symbol,
+                        price: currentPrice,
+                        change: priceChange,
+                        formatPrice: asset.formatPrice,
+                        error: false
+                    };
+                });
+
+                // Check if we got at least some valid prices
+                const validPrices = prices.filter(p => !p.error && p.price !== null);
+                if (validPrices.length === 0) {
+                    throw new Error('No valid price data available');
+                }
+
+                retryCount = 0; // Reset retry count on success
+                return { success: true, data: prices, source: 'Pyth Network' };
+
+            } catch (error) {
+                console.error('Pyth API Error:', error.message);
+                retryCount++;
+                
+                let errorMessage = 'Connection error';
+                if (error.name === 'AbortError') {
+                    errorMessage = 'Request timeout';
+                } else if (error.message.includes('API Error')) {
+                    errorMessage = error.message;
+                } else if (error.message.includes('Failed to fetch')) {
+                    errorMessage = 'Network error - check connection';
+                }
+                
+                return { 
+                    success: false, 
+                    data: [], 
+                    source: errorMessage,
+                    canRetry: retryCount < maxRetries
+                };
+            }
+        }
+
+        // Update prices with enhanced error handling
+        async function updatePrices() {
+            updateStatusBar('Updating prices...');
+            
+            const result = await fetchPythPrices();
+            
+            if (result.success && result.data.length > 0) {
+                currentPrices = result.data;
+                updateTicker();
+                updateStatusBar(`${result.source} • Last updated: ${new Date().toLocaleTimeString()}`);
+            } else {
+                showErrorMessage(result.source, result.canRetry);
+                const statusText = result.canRetry ? 
+                    `${result.source} • Retry ${retryCount}/${maxRetries}` : 
+                    result.source;
+                updateStatusBar(statusText, true);
+            }
+        }
+
+        // Enhanced ticker display
+        function updateTicker() {
+            const tickerContent = document.getElementById('tickerContent');
+            tickerContent.innerHTML = '';
+
+            currentPrices.forEach(item => {
+                if (item.error || item.price === null) return; // Skip invalid items
+
+                const priceItem = document.createElement('div');
+                priceItem.className = 'price-item';
+
+                const formattedPrice = item.formatPrice ? 
+                    item.formatPrice(item.price) : 
+                    `$${item.price.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 6 })}`;
+
+                let changeClass = 'neutral';
+                let changeSymbol = '';
+                let changeText = '--';
+                
+                if (typeof item.change === 'number' && !isNaN(item.change)) {
+                    if (item.change > 0) {
+                        changeClass = 'positive';
+                        changeSymbol = '+';
+                    } else if (item.change < 0) {
+                        changeClass = 'negative';
+                    }
+                    changeText = `${changeSymbol}${item.change.toFixed(2)}%`;
+                }
+
+                priceItem.innerHTML = `
+                    <span class="symbol">${item.symbol}</span>
+                    <span class="separator">:</span>
+                    <span class="price">${formattedPrice}</span>
+                    <span class="change ${changeClass}">${changeText}</span>
+                `;
+                tickerContent.appendChild(priceItem);
+            });
+
+            // If no valid items, show message
+            if (tickerContent.children.length === 0) {
+                showErrorMessage('No valid price data available', true);
+            }
+        }
+
+        function showErrorMessage(message, canRetry = false) {
+            const tickerContent = document.getElementById('tickerContent');
+            const retryButton = canRetry ? '<button class="retry-btn" onclick="updatePrices()">Retry</button>' : '';
+            tickerContent.innerHTML = `<div class="price-item loading error">${message}${retryButton}</div>`;
+        }
+
+        // Enhanced status bar
+        function updateStatusBar(message, isError = false) {
+            const statusBar = document.getElementById('statusBar');
+            statusBar.textContent = message;
+            statusBar.className = isError ? 'status-bar error' : 'status-bar';
+        }
+
+        // Start the application
+        function startTicker() {
+            updatePrices();
+            refreshInterval = setInterval(updatePrices, 30000); // Update every 30 seconds
+        }
+
+        // Initialize when page loads
+        document.addEventListener('DOMContentLoaded', startTicker);
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (refreshInterval) clearInterval(refreshInterval);
+        });
+
+        // Pause animation when page is hidden
+        document.addEventListener('visibilitychange', () => {
+            const tickerContent = document.getElementById('tickerContent');
+            if (document.hidden) {
+                tickerContent.style.animationPlayState = 'paused';
+                if (refreshInterval) clearInterval(refreshInterval);
+            } else {
+                tickerContent.style.animationPlayState = 'running';
+                if (!refreshInterval) {
+                    refreshInterval = setInterval(updatePrices, 30000);
+                }
+            }
+        });
+
+        // Manual refresh on click
+        document.addEventListener('click', (e) => {
+            if (!e.target.classList.contains('retry-btn')) {
+                updatePrices();
+            }
+        });
+
+        // Error recovery - automatically retry after failures
+        setInterval(() => {
+            if (currentPrices.length === 0 && retryCount < maxRetries) {
+                console.log('Auto-retry: Attempting to recover connection...');
+                updatePrices();
+            }
+        }, 60000); // Check every minute for recovery
+    </script>
+</body>
+</html>
